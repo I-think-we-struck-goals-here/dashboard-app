@@ -31,7 +31,7 @@ const parseDate = (s) => {
 const fmtDate = (s) => {
   const d = parseDate(s)
   if (Number.isNaN(d.getTime())) return s
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" })
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
 }
 
 const fmtNum = (n) => {
@@ -98,7 +98,7 @@ const SERIES_COLORS = [
 const CURRENCY_KEYS = new Set([
   "New customer revenue",
   "nAOV",
-  "Website",
+  "Website Revenue",
   "Amazon sales",
   "Google Ad Spend",
   "FB Ad Spend",
@@ -154,6 +154,7 @@ const salesData = RAW_SALES
 
     return {
       ...r,
+      "Website Revenue": r["Website"],
       "Ad Spend (Meta+Google)": metaGoogleSpend,
       _ts: parseDate(r.date).getTime(),
       _label: fmtDate(r.date)
@@ -199,7 +200,7 @@ const SALES_METRICS = [
   "New Web Customers",
   "New customer revenue",
   "nAOV",
-  "Website",
+  "Website Revenue",
   "Amazon sales",
   "Google Ad Spend",
   "FB Ad Spend",
@@ -227,7 +228,7 @@ const METRIC_COLORS = ALL_METRICS.reduce((acc, metric, idx) => {
 const metricColor = (metric) => METRIC_COLORS[metric] || SERIES_COLORS[0]
 
 const GROUPS = {
-  Revenue: ["Website", "Amazon sales", "Total"],
+  Revenue: ["Website Revenue", "Amazon sales", "Total"],
   "New Customers": ["New Web Customers", "New customer revenue", "nAOV"],
   "Ad Spend": ["Google Ad Spend", "FB Ad Spend", "Ad Spend (Meta+Google)", "Amazon ad spend", "Total ad spend"],
   Efficiency: ["New Customer Aq Cost", "nROAS", "WEB MER", "TOTAL MER", "Efficiency (MER)"],
@@ -242,7 +243,7 @@ const QUICK_VIEWS = [
   },
   {
     label: "Revenue",
-    metrics: ["Website", "Amazon sales", "Total", "Net Profit (TW)"]
+    metrics: ["Website Revenue", "Amazon sales", "Total", "Net Profit (TW)"]
   },
   {
     label: "Acquisition",
@@ -519,7 +520,7 @@ const PresetMiniChart = ({ title, data, aKey, bKey, axisA, axisB }) => {
 }
 
 export default function Dashboard() {
-  const [visible, setVisible] = useState(() => new Set(["Website", "Amazon sales", "Total", "Active Subs"]))
+  const [visible, setVisible] = useState(() => new Set(["Website Revenue", "Amazon sales", "Total", "Active Subs"]))
   const [chartType, setChartType] = useState("line")
   const [hoveredGroup, setHoveredGroup] = useState(null)
 
@@ -630,7 +631,7 @@ export default function Dashboard() {
 
   const kpis = [
     { label: "Total revenue", key: "Total" },
-    { label: "Website", key: "Website" },
+    { label: "Website revenue", key: "Website Revenue" },
     { label: "Amazon", key: "Amazon sales" },
     { label: "Meta + Google spend", key: "Ad Spend (Meta+Google)" },
     { label: "New customers", key: "New Web Customers" },
@@ -711,11 +712,11 @@ export default function Dashboard() {
       { title: "Ad spend vs Amazon sales", aKey: spend, bKey: "Amazon sales" },
       { title: "Ad spend vs Net gained subs", aKey: spend, bKey: "Net Gained Subs" },
 
-      { title: "Website revenue vs New customers", aKey: "Website", bKey: "New Web Customers" },
-      { title: "Website revenue vs CAC", aKey: "Website", bKey: "New Customer Aq Cost" },
+      { title: "Website revenue vs New customers", aKey: "Website Revenue", bKey: "New Web Customers" },
+      { title: "Website revenue vs CAC", aKey: "Website Revenue", bKey: "New Customer Aq Cost" },
       { title: "Total revenue vs Active subs", aKey: "Total", bKey: "Active Subs" },
       { title: "Amazon sales vs Amazon ad spend", aKey: "Amazon sales", bKey: "Amazon ad spend" },
-      { title: "Meta + Google spend vs Website revenue", aKey: spend, bKey: "Website" }
+      { title: "Meta + Google spend vs Website revenue", aKey: spend, bKey: "Website Revenue" }
     ]
 
     return list.map((p) => ({
@@ -1110,7 +1111,7 @@ export default function Dashboard() {
 
           <div style={{ marginTop: 12, fontSize: 12, color: THEME.muted }}>All Ad spend presets use Meta + Google only</div>
 
-          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 14 }}>
+          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr", gap: 14 }}>
             {presets.map((p) => (
               <PresetMiniChart key={p.title} title={p.title} data={rangedData} aKey={p.aKey} bKey={p.bKey} axisA={p.axisA} axisB={p.axisB} />
             ))}
@@ -1126,7 +1127,7 @@ export default function Dashboard() {
                   <th style={{ padding: "10px 12px", textAlign: "left", color: THEME.muted, fontWeight: 950, position: "sticky", left: 0, background: THEME.panel2 }}>
                     Week
                   </th>
-                  {["Total", "Website", "Amazon sales", "New Web Customers", "Ad Spend (Meta+Google)", "Net Profit (TW)", "nROAS", "Active Subs"].map((h) => (
+                  {["Total", "Website Revenue", "Amazon sales", "New Web Customers", "Ad Spend (Meta+Google)", "Net Profit (TW)", "nROAS", "Active Subs"].map((h) => (
                     <th key={h} style={{ padding: "10px 12px", textAlign: "right", color: THEME.muted, fontWeight: 950, whiteSpace: "nowrap" }}>
                       {h}
                     </th>
@@ -1142,7 +1143,7 @@ export default function Dashboard() {
                       <td style={{ padding: "9px 12px", textAlign: "left", color: THEME.text, fontWeight: 950, position: "sticky", left: 0, background: THEME.panel }}>
                         {row._label}
                       </td>
-                      {["Total", "Website", "Amazon sales", "New Web Customers", "Ad Spend (Meta+Google)", "Net Profit (TW)", "nROAS", "Active Subs"].map((k) => (
+                      {["Total", "Website Revenue", "Amazon sales", "New Web Customers", "Ad Spend (Meta+Google)", "Net Profit (TW)", "nROAS", "Active Subs"].map((k) => (
                         <td key={k} style={{ padding: "9px 12px", textAlign: "right", color: THEME.text, fontVariantNumeric: "tabular-nums", fontWeight: 850 }}>
                           {formatVal(k, row[k])}
                         </td>
