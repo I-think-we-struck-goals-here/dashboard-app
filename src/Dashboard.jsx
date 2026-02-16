@@ -235,6 +235,30 @@ const GROUPS = {
   Subscriptions: ["Active Subs", "Net Gained Subs"]
 }
 
+const QUICK_VIEWS = [
+  {
+    label: "Core",
+    metrics: ["Total", "Ad Spend (Meta+Google)", "New Web Customers", "New Customer Aq Cost", "Net Profit (TW)", "Active Subs"]
+  },
+  {
+    label: "Revenue",
+    metrics: ["Website", "Amazon sales", "Total", "Net Profit (TW)"]
+  },
+  {
+    label: "Acquisition",
+    metrics: ["New Web Customers", "Ad Spend (Meta+Google)", "New Customer Aq Cost", "nROAS", "Efficiency (MER)"]
+  },
+  {
+    label: "Retention",
+    metrics: ["Active Subs", "Net Gained Subs", "Total", "Net Profit (TW)"]
+  }
+]
+
+const KPI_TREND_POLARITY = {
+  "Ad Spend (Meta+Google)": "neutral",
+  "New Customer Aq Cost": "down"
+}
+
 const metricKind = (k) => {
   if (PCT_KEYS.has(k)) return "pct"
   if (CURRENCY_KEYS.has(k)) return "gbp"
@@ -248,6 +272,27 @@ const defaultAxisFor = (k) => {
   if (kind === "gbp") return "left"
   return "right"
 }
+
+const axisUnitLabel = (metrics, normalized = false) => {
+  if (!metrics.length) return ""
+  if (normalized) return "Index (100 baseline)"
+
+  const kinds = new Set(metrics.map((m) => metricKind(m)))
+  if (kinds.size === 1) {
+    const only = [...kinds][0]
+    if (only === "gbp") return "GBP (£)"
+    if (only === "count") return "Count"
+    if (only === "pct") return "Percent (%)"
+    if (only === "ratio") return "Ratio"
+  }
+
+  const onlyRatios = [...kinds].every((k) => k === "ratio" || k === "pct")
+  if (onlyRatios) return "Ratio / %"
+
+  return "Mixed units"
+}
+
+const hasFiniteNonZero = (v) => Number.isFinite(v) && v !== 0
 
 const metricMagnitude = (rows, key) => {
   const values = rows
@@ -307,34 +352,51 @@ const buildAutoAxisMap = (rows, metrics) => {
   return next
 }
 
-const buildNormalizedRows = (rows, metrics, preferredBaseIndex = 0) => {
-  if (!rows.length || !metrics.length) return { rows, baseMap: {} }
+const findNormalizationBaselineIndex = (rows, metrics, preferredBaseIndex = 0) => {
+  if (!rows.length || !metrics.length) return 0
 
   const startAt = clamp(preferredBaseIndex, 0, rows.length - 1)
+  const scoreRow = (row) =>
+    metrics.reduce((score, metric) => {
+      const v = Number(row?.[metric])
+      return score + (hasFiniteNonZero(v) ? 1 : 0)
+    }, 0)
+
+  for (let i = startAt; i < rows.length; i += 1) {
+    if (scoreRow(rows[i]) === metrics.length) return i
+  }
+
+  for (let i = 0; i < startAt; i += 1) {
+    if (scoreRow(rows[i]) === metrics.length) return i
+  }
+
+  let bestIndex = startAt
+  let bestScore = -1
+  let bestDistance = Infinity
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const score = scoreRow(rows[i])
+    const distance = Math.abs(i - startAt)
+    if (score > bestScore || (score === bestScore && distance < bestDistance)) {
+      bestIndex = i
+      bestScore = score
+      bestDistance = distance
+    }
+  }
+
+  return bestIndex
+}
+
+const buildNormalizedRows = (rows, metrics, preferredBaseIndex = 0) => {
+  if (!rows.length || !metrics.length) return { rows, baseMap: {}, baselineIndex: 0 }
+
+  const baselineIndex = findNormalizationBaselineIndex(rows, metrics, preferredBaseIndex)
+  const baselineRow = rows[baselineIndex] || {}
   const baseMap = {}
 
   metrics.forEach((metric) => {
-    let base = null
-
-    for (let i = startAt; i < rows.length; i += 1) {
-      const v = Number(rows[i]?.[metric])
-      if (Number.isFinite(v) && v !== 0) {
-        base = v
-        break
-      }
-    }
-
-    if (base == null) {
-      for (let i = 0; i < rows.length; i += 1) {
-        const v = Number(rows[i]?.[metric])
-        if (Number.isFinite(v) && v !== 0) {
-          base = v
-          break
-        }
-      }
-    }
-
-    baseMap[metric] = base
+    const base = Number(baselineRow?.[metric])
+    baseMap[metric] = hasFiniteNonZero(base) ? base : null
   })
 
   const normalizedRows = rows.map((row) => {
@@ -342,6 +404,7 @@ const buildNormalizedRows = (rows, metrics, preferredBaseIndex = 0) => {
     metrics.forEach((metric) => {
       const current = Number(row?.[metric])
       const base = baseMap[metric]
+      next[`__raw__${metric}`] = Number.isFinite(current) ? current : null
 
       if (!Number.isFinite(current) || !Number.isFinite(base) || base === 0) {
         next[metric] = null
@@ -352,7 +415,35 @@ const buildNormalizedRows = (rows, metrics, preferredBaseIndex = 0) => {
     return next
   })
 
-  return { rows: normalizedRows, baseMap }
+  return { rows: normalizedRows, baseMap, baselineIndex }
+}
+
+const countMissingPoints = (rows, metrics) =>
+  rows.reduce((total, row) => {
+    let rowMissing = 0
+    metrics.forEach((metric) => {
+      const v = Number(row?.[metric])
+      if (!Number.isFinite(v)) rowMissing += 1
+    })
+    return total + rowMissing
+  }, 0)
+
+const getKpiChangeDisplay = (key, change) => {
+  if (change == null) return null
+
+  const polarity = KPI_TREND_POLARITY[key] || "up"
+  if (polarity === "neutral") {
+    return {
+      color: THEME.muted,
+      text: `${change >= 0 ? "+" : "−"}${Math.abs(change).toFixed(1)}% WoW`
+    }
+  }
+
+  const good = polarity === "down" ? change < 0 : change >= 0
+  return {
+    color: good ? "#16a34a" : "#dc2626",
+    text: `${change >= 0 ? "▲" : "▼"} ${Math.abs(change).toFixed(1)}% WoW`
+  }
 }
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
@@ -407,8 +498,8 @@ const PresetMiniChart = ({ title, data, aKey, bKey, axisA, axisB }) => {
             <YAxis yAxisId="left" tick={{ fontSize: 11, fill: THEME.muted }} />
             {showRightAxis ? <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: THEME.muted }} /> : null}
             <Tooltip content={tooltip} />
-            <Line yAxisId={axisA} type="monotone" dataKey={aKey} stroke={colorA} strokeWidth={2.4} dot={false} connectNulls />
-            <Line yAxisId={axisB} type="monotone" dataKey={bKey} stroke={colorB} strokeWidth={2.4} dot={false} connectNulls />
+            <Line yAxisId={axisA} type="monotone" dataKey={aKey} stroke={colorA} strokeWidth={2.4} dot={false} />
+            <Line yAxisId={axisB} type="monotone" dataKey={bKey} stroke={colorB} strokeWidth={2.4} dot={false} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -505,19 +596,29 @@ export default function Dashboard() {
   const rightMetrics = visibleMetrics.filter((m) => axisMap[m] === "right")
 
   const normalized = useMemo(() => {
-    if (!normalizeMetrics) return { rows: displayedData, baseMap: {} }
+    if (!normalizeMetrics) return { rows: displayedData, baseMap: {}, baselineIndex: brushRange.startIndex }
     return buildNormalizedRows(displayedData, visibleMetrics, brushRange.startIndex)
   }, [normalizeMetrics, displayedData, visibleMetrics, brushRange.startIndex])
 
   const mainChartData = normalizeMetrics ? normalized.rows : displayedData
   const normalizedUnavailable = normalizeMetrics ? visibleMetrics.filter((m) => !Number.isFinite(normalized.baseMap[m])) : []
-  const normalizationBaseLabel = displayedData[clamp(brushRange.startIndex, 0, Math.max(0, displayedData.length - 1))]?._label
+  const normalizationBaseLabel = displayedData[normalized.baselineIndex]?._label
+  const missingPointCount = useMemo(() => countMissingPoints(rangedData, visibleMetrics), [rangedData, visibleMetrics])
+  const leftAxisLabel = axisUnitLabel(normalizeMetrics ? visibleMetrics : leftMetrics, normalizeMetrics)
+  const rightAxisLabel = normalizeMetrics ? "" : axisUnitLabel(rightMetrics, false)
+  const canUseBarMode = visibleMetrics.length <= 3
 
   const autoBalanceAxes = () => {
     if (!visibleMetrics.length) return
     const next = buildAutoAxisMap(rangedData, visibleMetrics)
     setAxisMap((prevMap) => ({ ...prevMap, ...next }))
   }
+
+  useEffect(() => {
+    if (chartType === "bar" && !canUseBarMode) {
+      setChartType("line")
+    }
+  }, [chartType, canUseBarMode])
 
   const latest = rangedData[rangedData.length - 1] || displayedData[displayedData.length - 1]
   const prev = rangedData[rangedData.length - 2] || displayedData[displayedData.length - 2]
@@ -540,6 +641,7 @@ export default function Dashboard() {
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null
+    const hasNormalizedPayload = payload.some((p) => p?.payload && p.payload[`__raw__${p.dataKey}`] != null)
     return (
       <div
         style={{
@@ -558,7 +660,11 @@ export default function Dashboard() {
           .map((p) => (
             <div key={p.dataKey} style={{ display: "flex", justifyContent: "space-between", gap: 18, padding: "2px 0" }}>
               <span style={{ color: THEME.muted }}>{p.dataKey}</span>
-              <span style={{ fontWeight: 900 }}>{normalizeMetrics ? `${Number(p.value).toFixed(1)} index` : formatVal(p.dataKey, p.value)}</span>
+              <span style={{ fontWeight: 900 }}>
+                {normalizeMetrics && hasNormalizedPayload
+                  ? `${Number(p.value).toFixed(1)} index${Number.isFinite(Number(p.payload?.[`__raw__${p.dataKey}`])) ? ` · ${formatVal(p.dataKey, p.payload[`__raw__${p.dataKey}`])}` : ""}`
+                  : formatVal(p.dataKey, p.value)}
+              </span>
             </div>
           ))}
       </div>
@@ -675,6 +781,7 @@ export default function Dashboard() {
           {kpis.map((k) => {
             const val = latest?.[k.key]
             const change = wow(val, prev?.[k.key])
+            const changeDisplay = getKpiChangeDisplay(k.key, change)
             return (
               <div
                 key={k.key}
@@ -688,10 +795,8 @@ export default function Dashboard() {
               >
                 <div style={{ fontSize: 11, color: THEME.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 800 }}>{k.label}</div>
                 <div style={{ fontSize: 20, fontWeight: 950, marginTop: 6 }}>{formatVal(k.key, val)}</div>
-                {change != null ? (
-                  <div style={{ fontSize: 12, marginTop: 6, color: change >= 0 ? "#16a34a" : "#dc2626", fontWeight: 900 }}>
-                    {change >= 0 ? "▲" : "▼"} {Math.abs(change).toFixed(1)}% WoW
-                  </div>
+                {changeDisplay ? (
+                  <div style={{ fontSize: 12, marginTop: 6, color: changeDisplay.color, fontWeight: 900 }}>{changeDisplay.text}</div>
                 ) : (
                   <div style={{ fontSize: 12, marginTop: 6, color: THEME.faint }}> </div>
                 )}
@@ -719,6 +824,35 @@ export default function Dashboard() {
               >
                 Clear
               </button>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: THEME.muted, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>
+                Quick Views
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {QUICK_VIEWS.map((view) => {
+                  const active = visible.size === view.metrics.length && view.metrics.every((metric) => visible.has(metric))
+                  return (
+                    <button
+                      key={view.label}
+                      onClick={() => setVisible(new Set(view.metrics))}
+                      style={{
+                        border: `1px solid ${THEME.border}`,
+                        background: active ? THEME.text : THEME.panel2,
+                        borderRadius: 999,
+                        padding: "6px 10px",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        color: active ? THEME.bg : THEME.text,
+                        fontWeight: 900
+                      }}
+                    >
+                      {view.label}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -786,17 +920,22 @@ export default function Dashboard() {
                 {["line", "bar", "area"].map((t) => (
                   <button
                     key={t}
-                    onClick={() => setChartType(t)}
+                    onClick={() => {
+                      if (t === "bar" && !canUseBarMode) return
+                      setChartType(t)
+                    }}
+                    disabled={t === "bar" && !canUseBarMode}
                     style={{
                       border: `1px solid ${THEME.border}`,
                       background: chartType === t ? THEME.text : THEME.panel2,
                       borderRadius: 12,
                       padding: "7px 10px",
-                      cursor: "pointer",
+                      cursor: t === "bar" && !canUseBarMode ? "not-allowed" : "pointer",
                       fontSize: 13,
                       color: chartType === t ? THEME.bg : THEME.text,
                       fontWeight: 950,
-                      textTransform: "capitalize"
+                      textTransform: "capitalize",
+                      opacity: t === "bar" && !canUseBarMode ? 0.45 : 1
                     }}
                   >
                     {t}
@@ -844,11 +983,22 @@ export default function Dashboard() {
             <div style={{ marginTop: 12, fontSize: 12, color: THEME.muted }}>
               {normalizeMetrics ? "Normalization is on, so all active metrics share one index scale." : "Tip: put currency on the left axis and counts or ratios on the right axis"}
             </div>
+            {!canUseBarMode ? <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted }}>Bar mode is limited to 3 active metrics for readability.</div> : null}
           </div>
         </div>
 
         <div style={{ background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 18, padding: 14, boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)", marginBottom: 14 }}>
           <div style={{ fontSize: 14, fontWeight: 950, marginBottom: 8 }}>Time series</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 11, color: THEME.muted, marginBottom: 8 }}>
+            <span style={{ background: THEME.panel2, border: `1px solid ${THEME.border}`, borderRadius: 999, padding: "3px 8px" }}>
+              Left axis: {leftAxisLabel || "—"}
+            </span>
+            {!normalizeMetrics && rightMetrics.length ? (
+              <span style={{ background: THEME.panel2, border: `1px solid ${THEME.border}`, borderRadius: 999, padding: "3px 8px" }}>
+                Right axis: {rightAxisLabel || "—"}
+              </span>
+            ) : null}
+          </div>
 
           <div style={{ width: "100%", height: 420 }}>
             <ResponsiveContainer>
@@ -859,6 +1009,11 @@ export default function Dashboard() {
                 {visibleMetrics.length ? (
                   <YAxis
                     yAxisId="left"
+                    label={
+                      leftAxisLabel
+                        ? { value: leftAxisLabel, angle: -90, position: "insideLeft", offset: 2, fill: THEME.muted, fontSize: 11 }
+                        : undefined
+                    }
                     tick={{ fontSize: 11, fill: THEME.muted }}
                     tickFormatter={(v) => {
                       if (!isFiniteNumber(v)) return ""
@@ -869,7 +1024,18 @@ export default function Dashboard() {
                   />
                 ) : null}
 
-                {!normalizeMetrics && rightMetrics.length ? <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: THEME.muted }} /> : null}
+                {!normalizeMetrics && rightMetrics.length ? (
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    label={
+                      rightAxisLabel
+                        ? { value: rightAxisLabel, angle: 90, position: "insideRight", offset: 2, fill: THEME.muted, fontSize: 11 }
+                        : undefined
+                    }
+                    tick={{ fontSize: 11, fill: THEME.muted }}
+                  />
+                ) : null}
 
                 <Tooltip content={CustomTooltip} />
 
@@ -881,10 +1047,10 @@ export default function Dashboard() {
 
                   if (chartType === "area")
                     return (
-                      <Area key={m} yAxisId={yId} type="monotone" dataKey={m} stroke={color} fill={color} fillOpacity={0.12} strokeWidth={2} dot={false} connectNulls />
+                      <Area key={m} yAxisId={yId} type="monotone" dataKey={m} stroke={color} fill={color} fillOpacity={0.12} strokeWidth={2} dot={false} />
                     )
 
-                  return <Line key={m} yAxisId={yId} type="monotone" dataKey={m} stroke={color} strokeWidth={2.5} dot={false} connectNulls />
+                  return <Line key={m} yAxisId={yId} type="monotone" dataKey={m} stroke={color} strokeWidth={2.5} dot={false} />
                 })}
 
                 {normalizeMetrics ? <ReferenceLine yAxisId="left" y={100} stroke={THEME.border} strokeDasharray="4 4" /> : null}
@@ -910,11 +1076,12 @@ export default function Dashboard() {
 
           <div style={{ marginTop: 10, fontSize: 12, color: THEME.muted }}>
             {normalizeMetrics
-              ? `Normalized to index 100 from ${normalizationBaseLabel || "the first visible week"} using each metric's first non-zero value.`
+              ? `Normalized to index 100 from ${normalizationBaseLabel || "the selected baseline week"} (same baseline for all active metrics).`
               : "Date range stays fixed when you change metrics"}
             {normalizeMetrics && normalizedUnavailable.length
               ? ` ${normalizedUnavailable.length} metric${normalizedUnavailable.length > 1 ? "s are" : " is"} hidden because no non-zero baseline was found.`
               : ""}
+            {!normalizeMetrics && missingPointCount ? ` ${missingPointCount} missing data point${missingPointCount > 1 ? "s are" : " is"} shown as line breaks.` : ""}
           </div>
         </div>
 
