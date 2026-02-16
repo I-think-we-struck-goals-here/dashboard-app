@@ -307,6 +307,54 @@ const buildAutoAxisMap = (rows, metrics) => {
   return next
 }
 
+const buildNormalizedRows = (rows, metrics, preferredBaseIndex = 0) => {
+  if (!rows.length || !metrics.length) return { rows, baseMap: {} }
+
+  const startAt = clamp(preferredBaseIndex, 0, rows.length - 1)
+  const baseMap = {}
+
+  metrics.forEach((metric) => {
+    let base = null
+
+    for (let i = startAt; i < rows.length; i += 1) {
+      const v = Number(rows[i]?.[metric])
+      if (Number.isFinite(v) && v !== 0) {
+        base = v
+        break
+      }
+    }
+
+    if (base == null) {
+      for (let i = 0; i < rows.length; i += 1) {
+        const v = Number(rows[i]?.[metric])
+        if (Number.isFinite(v) && v !== 0) {
+          base = v
+          break
+        }
+      }
+    }
+
+    baseMap[metric] = base
+  })
+
+  const normalizedRows = rows.map((row) => {
+    const next = { ...row }
+    metrics.forEach((metric) => {
+      const current = Number(row?.[metric])
+      const base = baseMap[metric]
+
+      if (!Number.isFinite(current) || !Number.isFinite(base) || base === 0) {
+        next[metric] = null
+      } else {
+        next[metric] = (current / base) * 100
+      }
+    })
+    return next
+  })
+
+  return { rows: normalizedRows, baseMap }
+}
+
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
 
 const PresetMiniChart = ({ title, data, aKey, bKey, axisA, axisB }) => {
@@ -386,6 +434,7 @@ export default function Dashboard() {
 
   const [useRolling, setUseRolling] = useState(false)
   const [windowSize, setWindowSize] = useState(4)
+  const [normalizeMetrics, setNormalizeMetrics] = useState(false)
 
   const [axisMap, setAxisMap] = useState(() => {
     const m = {}
@@ -455,6 +504,15 @@ export default function Dashboard() {
   const leftMetrics = visibleMetrics.filter((m) => axisMap[m] === "left")
   const rightMetrics = visibleMetrics.filter((m) => axisMap[m] === "right")
 
+  const normalized = useMemo(() => {
+    if (!normalizeMetrics) return { rows: displayedData, baseMap: {} }
+    return buildNormalizedRows(displayedData, visibleMetrics, brushRange.startIndex)
+  }, [normalizeMetrics, displayedData, visibleMetrics, brushRange.startIndex])
+
+  const mainChartData = normalizeMetrics ? normalized.rows : displayedData
+  const normalizedUnavailable = normalizeMetrics ? visibleMetrics.filter((m) => !Number.isFinite(normalized.baseMap[m])) : []
+  const normalizationBaseLabel = displayedData[clamp(brushRange.startIndex, 0, Math.max(0, displayedData.length - 1))]?._label
+
   const autoBalanceAxes = () => {
     if (!visibleMetrics.length) return
     const next = buildAutoAxisMap(rangedData, visibleMetrics)
@@ -500,7 +558,7 @@ export default function Dashboard() {
           .map((p) => (
             <div key={p.dataKey} style={{ display: "flex", justifyContent: "space-between", gap: 18, padding: "2px 0" }}>
               <span style={{ color: THEME.muted }}>{p.dataKey}</span>
-              <span style={{ fontWeight: 900 }}>{formatVal(p.dataKey, p.value)}</span>
+              <span style={{ fontWeight: 900 }}>{normalizeMetrics ? `${Number(p.value).toFixed(1)} index` : formatVal(p.dataKey, p.value)}</span>
             </div>
           ))}
       </div>
@@ -514,6 +572,7 @@ export default function Dashboard() {
         const v = e.target.value
         setAxisMap((prevMap) => ({ ...prevMap, [metric]: v }))
       }}
+      disabled={normalizeMetrics}
       style={{
         border: `1px solid ${THEME.border}`,
         borderRadius: 10,
@@ -521,7 +580,8 @@ export default function Dashboard() {
         fontSize: 12,
         background: THEME.panel,
         color: THEME.text,
-        width: "100%"
+        width: "100%",
+        opacity: normalizeMetrics ? 0.55 : 1
       }}
     >
       <option value="left">Left axis</option>
@@ -582,6 +642,11 @@ export default function Dashboard() {
               <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 13, color: THEME.muted }}>
                 <input type="checkbox" checked={useRolling} onChange={(e) => setUseRolling(e.target.checked)} />
                 4 week rolling average
+              </label>
+
+              <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 13, color: THEME.muted }}>
+                <input type="checkbox" checked={normalizeMetrics} onChange={(e) => setNormalizeMetrics(e.target.checked)} />
+                Normalize metrics (index = 100)
               </label>
 
               <select
@@ -739,15 +804,17 @@ export default function Dashboard() {
                 ))}
                 <button
                   onClick={autoBalanceAxes}
+                  disabled={normalizeMetrics || !visibleMetrics.length}
                   style={{
                     border: `1px solid ${THEME.border}`,
                     background: THEME.panel2,
                     borderRadius: 12,
                     padding: "7px 10px",
-                    cursor: "pointer",
+                    cursor: normalizeMetrics || !visibleMetrics.length ? "not-allowed" : "pointer",
                     fontSize: 13,
                     color: THEME.text,
-                    fontWeight: 900
+                    fontWeight: 900,
+                    opacity: normalizeMetrics || !visibleMetrics.length ? 0.55 : 1
                   }}
                 >
                   Auto-balance axes
@@ -775,7 +842,7 @@ export default function Dashboard() {
             </div>
 
             <div style={{ marginTop: 12, fontSize: 12, color: THEME.muted }}>
-              Tip: put currency on the left axis and counts or ratios on the right axis
+              {normalizeMetrics ? "Normalization is on, so all active metrics share one index scale." : "Tip: put currency on the left axis and counts or ratios on the right axis"}
             </div>
           </div>
         </div>
@@ -785,29 +852,30 @@ export default function Dashboard() {
 
           <div style={{ width: "100%", height: 420 }}>
             <ResponsiveContainer>
-              <ComposedChart data={displayedData} margin={{ top: 8, right: 46, left: 10, bottom: 8 }}>
+              <ComposedChart data={mainChartData} margin={{ top: 8, right: 46, left: 10, bottom: 8 }}>
                 <CartesianGrid stroke={THEME.grid} strokeDasharray="3 3" />
                 <XAxis dataKey="_label" tick={{ fontSize: 11, fill: THEME.muted }} minTickGap={70} interval="preserveStartEnd" />
 
-                {leftMetrics.length ? (
+                {visibleMetrics.length ? (
                   <YAxis
                     yAxisId="left"
                     tick={{ fontSize: 11, fill: THEME.muted }}
                     tickFormatter={(v) => {
                       if (!isFiniteNumber(v)) return ""
+                      if (normalizeMetrics) return `${Math.round(v)}`
                       if (v >= 1000) return `£${(v / 1000).toFixed(0)}k`
                       return v
                     }}
                   />
                 ) : null}
 
-                {rightMetrics.length ? <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: THEME.muted }} /> : null}
+                {!normalizeMetrics && rightMetrics.length ? <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: THEME.muted }} /> : null}
 
                 <Tooltip content={CustomTooltip} />
 
                 {visibleMetrics.map((m) => {
                   const color = metricColor(m)
-                  const yId = axisMap[m] || "left"
+                  const yId = normalizeMetrics ? "left" : axisMap[m] || "left"
 
                   if (chartType === "bar") return <Bar key={m} yAxisId={yId} dataKey={m} fill={color} fillOpacity={0.6} />
 
@@ -818,6 +886,8 @@ export default function Dashboard() {
 
                   return <Line key={m} yAxisId={yId} type="monotone" dataKey={m} stroke={color} strokeWidth={2.5} dot={false} connectNulls />
                 })}
+
+                {normalizeMetrics ? <ReferenceLine yAxisId="left" y={100} stroke={THEME.border} strokeDasharray="4 4" /> : null}
 
                 <Brush
                   dataKey="_label"
@@ -838,7 +908,14 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
 
-          <div style={{ marginTop: 10, fontSize: 12, color: THEME.muted }}>Date range stays fixed when you change metrics</div>
+          <div style={{ marginTop: 10, fontSize: 12, color: THEME.muted }}>
+            {normalizeMetrics
+              ? `Normalized to index 100 from ${normalizationBaseLabel || "the first visible week"} using each metric's first non-zero value.`
+              : "Date range stays fixed when you change metrics"}
+            {normalizeMetrics && normalizedUnavailable.length
+              ? ` ${normalizedUnavailable.length} metric${normalizedUnavailable.length > 1 ? "s are" : " is"} hidden because no non-zero baseline was found.`
+              : ""}
+          </div>
         </div>
 
         <div style={{ background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 18, padding: 14, boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)", marginBottom: 14 }}>
