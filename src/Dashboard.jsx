@@ -524,19 +524,25 @@ const PresetMiniChart = ({ title, data, aKey, bKey, axisA, axisB }) => {
   )
 }
 
-const LinkedMetricChart = ({
-  title,
-  data,
-  aKey,
-  bKey,
-  axisA,
-  axisB,
-  brushRange,
-  onBrushChange
-}) => {
-  const colorA = metricColor(aKey)
-  const colorB = metricColor(bKey)
-  const showRightAxis = axisA === "right" || axisB === "right"
+const formatAxisTick = (metric, value) => {
+  if (!isFiniteNumber(value)) return ""
+  const abs = Math.abs(value)
+  const kind = metricKind(metric)
+
+  if (kind === "gbp") {
+    if (abs >= 1000) return `£${(value / 1000).toFixed(abs >= 10000 ? 0 : 1)}k`
+    return `£${Math.round(value)}`
+  }
+
+  if (kind === "pct") return `${Math.round(value)}%`
+  if (kind === "ratio") return Number(value).toFixed(abs >= 10 ? 0 : 1)
+  if (abs >= 1000) return `${(value / 1000).toFixed(abs >= 10000 ? 0 : 1)}k`
+  return `${Math.round(value)}`
+}
+
+const LinkedSingleMetricChart = ({ title, data, metric, brushRange, onBrushChange }) => {
+  const color = metricColor(metric)
+  const showZeroLine = metric === "Net Profit (TW)"
 
   const tooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null
@@ -571,20 +577,24 @@ const LinkedMetricChart = ({
         background: THEME.panel,
         border: `1px solid ${THEME.border}`,
         borderRadius: 14,
-        padding: 14
+        padding: 14,
+        boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)"
       }}
     >
       <div style={{ fontSize: 14, fontWeight: 950, marginBottom: 8, color: THEME.text }}>{title}</div>
       <div style={{ width: "100%", height: 260 }}>
         <ResponsiveContainer>
-          <ComposedChart data={data} margin={{ top: 8, right: showRightAxis ? 26 : 10, left: 10, bottom: 8 }}>
+          <ComposedChart data={data} margin={{ top: 8, right: 18, left: 10, bottom: 8 }}>
             <CartesianGrid stroke={THEME.grid} strokeDasharray="3 3" />
             <XAxis dataKey="_label" tick={{ fontSize: 11, fill: THEME.muted }} minTickGap={56} interval="preserveStartEnd" />
-            <YAxis yAxisId="left" tick={{ fontSize: 11, fill: THEME.muted }} />
-            {showRightAxis ? <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: THEME.muted }} /> : null}
+            <YAxis
+              yAxisId="left"
+              tick={{ fontSize: 11, fill: THEME.muted }}
+              tickFormatter={(value) => formatAxisTick(metric, value)}
+            />
             <Tooltip content={tooltip} />
-            <Line yAxisId={axisA} type="monotone" dataKey={aKey} stroke={colorA} strokeWidth={2.4} dot={false} />
-            <Line yAxisId={axisB} type="monotone" dataKey={bKey} stroke={colorB} strokeWidth={2.4} dot={false} />
+            <Area yAxisId="left" type="monotone" dataKey={metric} stroke={color} fill={color} fillOpacity={0.1} strokeWidth={2.5} dot={false} />
+            {showZeroLine ? <ReferenceLine yAxisId="left" y={0} stroke={THEME.border} strokeDasharray="4 4" /> : null}
             <Brush
               dataKey="_label"
               height={24}
@@ -602,17 +612,6 @@ const LinkedMetricChart = ({
             />
           </ComposedChart>
         </ResponsiveContainer>
-      </div>
-
-      <div style={{ display: "flex", gap: 10, marginTop: 8, fontSize: 11, color: THEME.muted, flexWrap: "wrap" }}>
-        <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-          <span style={{ width: 10, height: 10, borderRadius: 2, background: colorA, display: "inline-block" }} />
-          {aKey}
-        </span>
-        <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-          <span style={{ width: 10, height: 10, borderRadius: 2, background: colorB, display: "inline-block" }} />
-          {bKey}
-        </span>
       </div>
     </div>
   )
@@ -827,22 +826,15 @@ export default function Dashboard() {
   }, [rangedData])
 
   const subscriptionCharts = useMemo(() => {
-    const list = [
-      { title: "Active subs vs Total revenue", metric: "Total" },
-      { title: "Active subs vs New customers", metric: "New Web Customers" },
-      { title: "Active subs vs Meta + Google ad spend", metric: "Ad Spend (Meta+Google)" },
-      { title: "Active subs vs WEB MER", metric: "WEB MER" },
-      { title: "Active subs vs Profit", metric: "Net Profit (TW)" },
-      { title: "Active subs vs Acquisition cost", metric: "New Customer Aq Cost" }
+    return [
+      { title: "Total revenue", metric: "Total" },
+      { title: "New customers", metric: "New Web Customers" },
+      { title: "Meta + Google ad spend", metric: "Ad Spend (Meta+Google)" },
+      { title: "WEB MER", metric: "WEB MER" },
+      { title: "Profit", metric: "Net Profit (TW)" },
+      { title: "Acquisition cost", metric: "New Customer Aq Cost" }
     ]
-
-    return list.map((chart) => ({
-      ...chart,
-      aKey: "Active Subs",
-      bKey: chart.metric,
-      ...axisPairForPreset(displayedData, "Active Subs", chart.metric)
-    }))
-  }, [displayedData])
+  }, [])
 
   const syncStatusColor =
     syncState.status === "started"
@@ -1314,16 +1306,13 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
 
-          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr", gap: 14 }}>
             {subscriptionCharts.map((chart) => (
-              <LinkedMetricChart
+              <LinkedSingleMetricChart
                 key={chart.title}
                 title={chart.title}
                 data={displayedData}
-                aKey={chart.aKey}
-                bKey={chart.bKey}
-                axisA={chart.axisA}
-                axisB={chart.axisB}
+                metric={chart.metric}
                 brushRange={brushRange}
                 onBrushChange={setBrushRange}
               />
