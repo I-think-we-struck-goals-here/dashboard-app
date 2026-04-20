@@ -540,7 +540,7 @@ const formatAxisTick = (metric, value) => {
   return `${Math.round(value)}`
 }
 
-const LinkedSingleMetricChart = ({ title, data, metric, brushRange, onBrushChange }) => {
+const LinkedSingleMetricChart = ({ title, data, metric }) => {
   const color = metricColor(metric)
   const showZeroLine = metric === "Net Profit (TW)"
 
@@ -595,21 +595,6 @@ const LinkedSingleMetricChart = ({ title, data, metric, brushRange, onBrushChang
             <Tooltip content={tooltip} />
             <Area yAxisId="left" type="monotone" dataKey={metric} stroke={color} fill={color} fillOpacity={0.1} strokeWidth={2.5} dot={false} />
             {showZeroLine ? <ReferenceLine yAxisId="left" y={0} stroke={THEME.border} strokeDasharray="4 4" /> : null}
-            <Brush
-              dataKey="_label"
-              height={24}
-              stroke={THEME.border}
-              fill={THEME.panel2}
-              travellerWidth={10}
-              startIndex={brushRange.startIndex}
-              endIndex={brushRange.endIndex}
-              onChange={(r) => {
-                if (!r) return
-                const startIndex = r.startIndex ?? brushRange.startIndex
-                const endIndex = r.endIndex ?? brushRange.endIndex
-                onBrushChange({ startIndex, endIndex })
-              }}
-            />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -714,7 +699,10 @@ export default function Dashboard() {
     return buildNormalizedRows(displayedData, visibleMetrics, brushRange.startIndex)
   }, [normalizeMetrics, displayedData, visibleMetrics, brushRange.startIndex])
 
-  const mainChartData = normalizeMetrics ? normalized.rows : displayedData
+  const mainChartData = useMemo(() => {
+    if (!normalizeMetrics) return rangedData
+    return normalized.rows.slice(brushRange.startIndex, brushRange.endIndex + 1)
+  }, [normalizeMetrics, normalized.rows, rangedData, brushRange.startIndex, brushRange.endIndex])
   const normalizedUnavailable = normalizeMetrics ? visibleMetrics.filter((m) => !Number.isFinite(normalized.baseMap[m])) : []
   const normalizationBaseLabel = displayedData[normalized.baselineIndex]?._label
   const missingPointCount = useMemo(() => countMissingPoints(rangedData, visibleMetrics), [rangedData, visibleMetrics])
@@ -964,6 +952,41 @@ export default function Dashboard() {
               ) : null}
             </div>
           ) : null}
+        </div>
+
+        <div style={{ background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 18, padding: 14, boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)", marginBottom: 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline", marginBottom: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 950 }}>Master time range</div>
+            <div style={{ fontSize: 12, color: THEME.muted }}>
+              {rangedData[0]?._label || displayedData[0]?._label} to {rangedData[rangedData.length - 1]?._label || displayedData[displayedData.length - 1]?._label}
+            </div>
+          </div>
+
+          <div style={{ width: "100%", height: 120 }}>
+            <ResponsiveContainer>
+              <ComposedChart data={displayedData} margin={{ top: 8, right: 12, left: 10, bottom: 8 }}>
+                <CartesianGrid stroke={THEME.grid} strokeDasharray="3 3" />
+                <XAxis dataKey="_label" tick={{ fontSize: 11, fill: THEME.muted }} minTickGap={70} interval="preserveStartEnd" />
+                <YAxis hide />
+                <Area yAxisId="left" type="monotone" dataKey="Total" stroke={metricColor("Total")} fill={metricColor("Total")} fillOpacity={0.08} strokeWidth={2} dot={false} />
+                <Brush
+                  dataKey="_label"
+                  height={30}
+                  stroke={THEME.border}
+                  fill={THEME.panel2}
+                  travellerWidth={10}
+                  startIndex={brushRange.startIndex}
+                  endIndex={brushRange.endIndex}
+                  onChange={(r) => {
+                    if (!r) return
+                    const startIndex = r.startIndex ?? brushRange.startIndex
+                    const endIndex = r.endIndex ?? brushRange.endIndex
+                    setBrushRange({ startIndex, endIndex })
+                  }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 18 }}>
@@ -1244,21 +1267,6 @@ export default function Dashboard() {
 
                 {normalizeMetrics ? <ReferenceLine yAxisId="left" y={100} stroke={THEME.border} strokeDasharray="4 4" /> : null}
 
-                <Brush
-                  dataKey="_label"
-                  height={28}
-                  stroke={THEME.border}
-                  fill={THEME.panel2}
-                  travellerWidth={10}
-                  startIndex={brushRange.startIndex}
-                  endIndex={brushRange.endIndex}
-                  onChange={(r) => {
-                    if (!r) return
-                    const startIndex = r.startIndex ?? brushRange.startIndex
-                    const endIndex = r.endIndex ?? brushRange.endIndex
-                    setBrushRange({ startIndex, endIndex })
-                  }}
-                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -1278,7 +1286,7 @@ export default function Dashboard() {
           <div style={{ fontSize: 14, fontWeight: 950, marginBottom: 8 }}>Subscriptions</div>
           <div style={{ width: "100%", height: 260 }}>
             <ResponsiveContainer>
-              <ComposedChart data={displayedData} margin={{ top: 8, right: 46, left: 10, bottom: 8 }}>
+              <ComposedChart data={rangedData} margin={{ top: 8, right: 46, left: 10, bottom: 8 }}>
                 <CartesianGrid stroke={THEME.grid} strokeDasharray="3 3" />
                 <XAxis dataKey="_label" tick={{ fontSize: 11, fill: THEME.muted }} minTickGap={80} interval="preserveStartEnd" />
                 <YAxis yAxisId="left" tick={{ fontSize: 11, fill: THEME.muted }} />
@@ -1287,21 +1295,6 @@ export default function Dashboard() {
                 <Area yAxisId="left" type="monotone" dataKey="Active Subs" stroke={metricColor("Active Subs")} fill={metricColor("Active Subs")} fillOpacity={0.12} strokeWidth={2.5} dot={false} />
                 <Bar yAxisId="right" dataKey="Net Gained Subs" fill={metricColor("Net Gained Subs")} fillOpacity={0.55} />
                 <ReferenceLine yAxisId="right" y={0} stroke={THEME.border} strokeDasharray="4 4" />
-                <Brush
-                  dataKey="_label"
-                  height={24}
-                  stroke={THEME.border}
-                  fill={THEME.panel2}
-                  travellerWidth={10}
-                  startIndex={brushRange.startIndex}
-                  endIndex={brushRange.endIndex}
-                  onChange={(r) => {
-                    if (!r) return
-                    const startIndex = r.startIndex ?? brushRange.startIndex
-                    const endIndex = r.endIndex ?? brushRange.endIndex
-                    setBrushRange({ startIndex, endIndex })
-                  }}
-                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -1311,10 +1304,8 @@ export default function Dashboard() {
               <LinkedSingleMetricChart
                 key={chart.title}
                 title={chart.title}
-                data={displayedData}
+                data={rangedData}
                 metric={chart.metric}
-                brushRange={brushRange}
-                onBrushChange={setBrushRange}
               />
             ))}
           </div>
