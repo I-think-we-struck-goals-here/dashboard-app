@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-20T14:16:22.599Z",
+  "generatedAt": "2026-04-20T14:37:02.715Z",
   "salesSource": "https://script.google.com/macros/s/AKfycbzvK1JEtSJsQcattA9dySKpR9itwMlClmAt47PK8d4ecBatjASaMKTr71mZRmZFXmHRHw/exec",
   "subscriptionsSource": "existing:src/data/weekly-performance.json",
   "sales": [
@@ -3463,6 +3463,56 @@
       "date": "2026-02-09",
       "active_subscriptions": 1303,
       "net_gained": 33
+    },
+    {
+      "date": "2026-02-16",
+      "active_subscriptions": 1344,
+      "net_gained": 41
+    },
+    {
+      "date": "2026-02-23",
+      "active_subscriptions": 1363,
+      "net_gained": 19
+    },
+    {
+      "date": "2026-03-02",
+      "active_subscriptions": 1440,
+      "net_gained": 77
+    },
+    {
+      "date": "2026-03-09",
+      "active_subscriptions": 1485,
+      "net_gained": 45
+    },
+    {
+      "date": "2026-03-16",
+      "active_subscriptions": 1507,
+      "net_gained": 22
+    },
+    {
+      "date": "2026-03-23",
+      "active_subscriptions": 1488,
+      "net_gained": -19
+    },
+    {
+      "date": "2026-03-30",
+      "active_subscriptions": 1461,
+      "net_gained": -27
+    },
+    {
+      "date": "2026-04-06",
+      "active_subscriptions": 1463,
+      "net_gained": 2
+    },
+    {
+      "date": "2026-04-13",
+      "active_subscriptions": 1476,
+      "net_gained": 13
+    },
+    {
+      "date": "2026-04-20",
+      "active_subscriptions": 1475,
+      "net_gained": -1
     }
   ]
 }
