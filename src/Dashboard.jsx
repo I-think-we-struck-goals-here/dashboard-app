@@ -524,6 +524,100 @@ const PresetMiniChart = ({ title, data, aKey, bKey, axisA, axisB }) => {
   )
 }
 
+const LinkedMetricChart = ({
+  title,
+  data,
+  aKey,
+  bKey,
+  axisA,
+  axisB,
+  brushRange,
+  onBrushChange
+}) => {
+  const colorA = metricColor(aKey)
+  const colorB = metricColor(bKey)
+  const showRightAxis = axisA === "right" || axisB === "right"
+
+  const tooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null
+    return (
+      <div
+        style={{
+          background: THEME.panel,
+          border: `1px solid ${THEME.border}`,
+          borderRadius: 10,
+          padding: "10px 12px",
+          fontSize: 12,
+          color: THEME.text,
+          boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)"
+        }}
+      >
+        <div style={{ fontWeight: 800, marginBottom: 6, color: THEME.text }}>{label}</div>
+        {payload
+          .filter((p) => p.value != null)
+          .map((p) => (
+            <div key={p.dataKey} style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+              <span style={{ color: THEME.muted }}>{p.dataKey}</span>
+              <span style={{ fontWeight: 800, color: THEME.text }}>{formatVal(p.dataKey, p.value)}</span>
+            </div>
+          ))}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      style={{
+        background: THEME.panel,
+        border: `1px solid ${THEME.border}`,
+        borderRadius: 14,
+        padding: 14
+      }}
+    >
+      <div style={{ fontSize: 14, fontWeight: 950, marginBottom: 8, color: THEME.text }}>{title}</div>
+      <div style={{ width: "100%", height: 260 }}>
+        <ResponsiveContainer>
+          <ComposedChart data={data} margin={{ top: 8, right: showRightAxis ? 26 : 10, left: 10, bottom: 8 }}>
+            <CartesianGrid stroke={THEME.grid} strokeDasharray="3 3" />
+            <XAxis dataKey="_label" tick={{ fontSize: 11, fill: THEME.muted }} minTickGap={56} interval="preserveStartEnd" />
+            <YAxis yAxisId="left" tick={{ fontSize: 11, fill: THEME.muted }} />
+            {showRightAxis ? <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: THEME.muted }} /> : null}
+            <Tooltip content={tooltip} />
+            <Line yAxisId={axisA} type="monotone" dataKey={aKey} stroke={colorA} strokeWidth={2.4} dot={false} />
+            <Line yAxisId={axisB} type="monotone" dataKey={bKey} stroke={colorB} strokeWidth={2.4} dot={false} />
+            <Brush
+              dataKey="_label"
+              height={24}
+              stroke={THEME.border}
+              fill={THEME.panel2}
+              travellerWidth={10}
+              startIndex={brushRange.startIndex}
+              endIndex={brushRange.endIndex}
+              onChange={(r) => {
+                if (!r) return
+                const startIndex = r.startIndex ?? brushRange.startIndex
+                const endIndex = r.endIndex ?? brushRange.endIndex
+                onBrushChange({ startIndex, endIndex })
+              }}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginTop: 8, fontSize: 11, color: THEME.muted, flexWrap: "wrap" }}>
+        <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: colorA, display: "inline-block" }} />
+          {aKey}
+        </span>
+        <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: colorB, display: "inline-block" }} />
+          {bKey}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [visible, setVisible] = useState(() => new Set(["Website Revenue", "Amazon sales", "Total", "Active Subs"]))
   const [chartType, setChartType] = useState("line")
@@ -610,14 +704,6 @@ export default function Dashboard() {
     const { startIndex, endIndex } = brushRange
     return displayedData.slice(startIndex, endIndex + 1)
   }, [displayedData, brushRange])
-
-  const rangeStartTs = rangedData[0]?._ts ?? displayedData[0]?._ts
-  const rangeEndTs = rangedData[rangedData.length - 1]?._ts ?? displayedData[displayedData.length - 1]?._ts
-
-  const rangedSubsData = useMemo(() => {
-    if (!rangeStartTs || !rangeEndTs) return subsData
-    return subsData.filter((r) => r._ts >= rangeStartTs - 7 * 86400000 && r._ts <= rangeEndTs + 7 * 86400000)
-  }, [rangeStartTs, rangeEndTs])
 
   const visibleMetrics = useMemo(() => ALL_METRICS.filter((m) => visible.has(m)), [visible])
 
@@ -739,6 +825,24 @@ export default function Dashboard() {
       ...axisPairForPreset(rangedData, p.aKey, p.bKey)
     }))
   }, [rangedData])
+
+  const subscriptionCharts = useMemo(() => {
+    const list = [
+      { title: "Active subs vs Total revenue", metric: "Total" },
+      { title: "Active subs vs New customers", metric: "New Web Customers" },
+      { title: "Active subs vs Meta + Google ad spend", metric: "Ad Spend (Meta+Google)" },
+      { title: "Active subs vs WEB MER", metric: "WEB MER" },
+      { title: "Active subs vs Profit", metric: "Net Profit (TW)" },
+      { title: "Active subs vs Acquisition cost", metric: "New Customer Aq Cost" }
+    ]
+
+    return list.map((chart) => ({
+      ...chart,
+      aKey: "Active Subs",
+      bKey: chart.metric,
+      ...axisPairForPreset(displayedData, "Active Subs", chart.metric)
+    }))
+  }, [displayedData])
 
   const syncStatusColor =
     syncState.status === "started"
@@ -1180,19 +1284,50 @@ export default function Dashboard() {
 
         <div style={{ background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 18, padding: 14, boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)", marginBottom: 14 }}>
           <div style={{ fontSize: 14, fontWeight: 950, marginBottom: 8 }}>Subscriptions</div>
-          <div style={{ width: "100%", height: 240 }}>
+          <div style={{ width: "100%", height: 260 }}>
             <ResponsiveContainer>
-              <ComposedChart data={rangedSubsData} margin={{ top: 8, right: 46, left: 10, bottom: 8 }}>
+              <ComposedChart data={displayedData} margin={{ top: 8, right: 46, left: 10, bottom: 8 }}>
                 <CartesianGrid stroke={THEME.grid} strokeDasharray="3 3" />
                 <XAxis dataKey="_label" tick={{ fontSize: 11, fill: THEME.muted }} minTickGap={80} interval="preserveStartEnd" />
                 <YAxis yAxisId="left" tick={{ fontSize: 11, fill: THEME.muted }} />
                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: THEME.muted }} />
                 <Tooltip content={CustomTooltip} />
-                <Area yAxisId="left" type="monotone" dataKey="active_subscriptions" stroke={metricColor("Active Subs")} fill={metricColor("Active Subs")} fillOpacity={0.12} strokeWidth={2.5} dot={false} />
-                <Bar yAxisId="right" dataKey="net_gained" fill={metricColor("Net Gained Subs")} fillOpacity={0.55} />
+                <Area yAxisId="left" type="monotone" dataKey="Active Subs" stroke={metricColor("Active Subs")} fill={metricColor("Active Subs")} fillOpacity={0.12} strokeWidth={2.5} dot={false} />
+                <Bar yAxisId="right" dataKey="Net Gained Subs" fill={metricColor("Net Gained Subs")} fillOpacity={0.55} />
                 <ReferenceLine yAxisId="right" y={0} stroke={THEME.border} strokeDasharray="4 4" />
+                <Brush
+                  dataKey="_label"
+                  height={24}
+                  stroke={THEME.border}
+                  fill={THEME.panel2}
+                  travellerWidth={10}
+                  startIndex={brushRange.startIndex}
+                  endIndex={brushRange.endIndex}
+                  onChange={(r) => {
+                    if (!r) return
+                    const startIndex = r.startIndex ?? brushRange.startIndex
+                    const endIndex = r.endIndex ?? brushRange.endIndex
+                    setBrushRange({ startIndex, endIndex })
+                  }}
+                />
               </ComposedChart>
             </ResponsiveContainer>
+          </div>
+
+          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+            {subscriptionCharts.map((chart) => (
+              <LinkedMetricChart
+                key={chart.title}
+                title={chart.title}
+                data={displayedData}
+                aKey={chart.aKey}
+                bKey={chart.bKey}
+                axisA={chart.axisA}
+                axisB={chart.axisB}
+                brushRange={brushRange}
+                onBrushChange={setBrushRange}
+              />
+            ))}
           </div>
         </div>
 
