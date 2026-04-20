@@ -1,0 +1,89 @@
+name: Sync Dashboard Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      sales_source:
+        description: Optional override for the weekly sales CSV URL
+        required: false
+        type: string
+        default: https://script.google.com/macros/s/AKfycbzvK1JEtSJsQcattA9dySKpR9itwMlClmAt47PK8d4ecBatjASaMKTr71mZRmZFXmHRHw/exec?format=csv
+      subscriptions_source:
+        description: Optional override for the subscriptions CSV URL
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-dashboard-data
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve sources
+        id: sources
+        env:
+          INPUT_SALES_SOURCE: ${{ github.event.inputs.sales_source }}
+          INPUT_SUBSCRIPTIONS_SOURCE: ${{ github.event.inputs.subscriptions_source }}
+          SECRET_SALES_SOURCE: ${{ secrets.FINANCE_SALES_SOURCE }}
+          SECRET_SUBSCRIPTIONS_SOURCE: ${{ secrets.FINANCE_SUBSCRIPTIONS_SOURCE }}
+          VAR_SALES_SOURCE: ${{ vars.FINANCE_SALES_SOURCE }}
+          VAR_SUBSCRIPTIONS_SOURCE: ${{ vars.FINANCE_SUBSCRIPTIONS_SOURCE }}
+        run: |
+          set -eu
+
+          SALES_SOURCE="${INPUT_SALES_SOURCE:-${SECRET_SALES_SOURCE:-${VAR_SALES_SOURCE:-}}}"
+          SUBSCRIPTIONS_SOURCE="${INPUT_SUBSCRIPTIONS_SOURCE:-${SECRET_SUBSCRIPTIONS_SOURCE:-${VAR_SUBSCRIPTIONS_SOURCE:-}}}"
+
+          if [ -z "$SALES_SOURCE" ]; then
+            echo "Missing weekly sales source. Set FINANCE_SALES_SOURCE in repository Secrets/Variables or provide a workflow input."
+            exit 1
+          fi
+
+          {
+            echo "sales_source=$SALES_SOURCE"
+            echo "subscriptions_source=$SUBSCRIPTIONS_SOURCE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Sync data and rebuild Pages output
+        run: |
+          if [ -n "${{ steps.sources.outputs.subscriptions_source }}" ]; then
+            npm run sync:data -- --sales "${{ steps.sources.outputs.sales_source }}" --subs "${{ steps.sources.outputs.subscriptions_source }}"
+          else
+            npm run sync:data -- --sales "${{ steps.sources.outputs.sales_source }}"
+          fi
+          npm run build:pages
+
+      - name: Commit updated site files
+        run: |
+          set -eu
+
+          if git diff --quiet -- src/data/weekly-performance.json docs; then
+            echo "No site changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/data/weekly-performance.json docs
+          git commit -m "chore: sync dashboard data"
+          git push
