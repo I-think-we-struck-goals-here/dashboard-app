@@ -15,6 +15,12 @@ import {
 import weeklyPerformance from "./data/weekly-performance.json"
 
 const { sales: RAW_SALES, subscriptions: RAW_SUBS } = weeklyPerformance
+const SYNC_TRIGGER_URL =
+  "https://script.google.com/macros/s/AKfycbzvK1JEtSJsQcattA9dySKpR9itwMlClmAt47PK8d4ecBatjASaMKTr71mZRmZFXmHRHw/exec"
+const SYNC_POST_MESSAGE_SOURCE = "weekly-sales-graphics-sync"
+
+const isTrustedSyncOrigin = (origin) =>
+  /^https:\/\/([a-z0-9-]+\.)*google(?:usercontent)?\.com$/i.test(origin)
 
 // Date helpers
 const parseDate = (s) => {
@@ -522,6 +528,11 @@ export default function Dashboard() {
   const [visible, setVisible] = useState(() => new Set(["Website Revenue", "Amazon sales", "Total", "Active Subs"]))
   const [chartType, setChartType] = useState("line")
   const [hoveredGroup, setHoveredGroup] = useState(null)
+  const [syncState, setSyncState] = useState({
+    status: "idle",
+    message: "",
+    actionsUrl: ""
+  })
 
   const [useRolling, setUseRolling] = useState(false)
   const [windowSize, setWindowSize] = useState(4)
@@ -576,6 +587,24 @@ export default function Dashboard() {
       return { startIndex, endIndex }
     })
   }, [displayedData.length])
+
+  useEffect(() => {
+    const handleSyncMessage = (event) => {
+      if (!isTrustedSyncOrigin(event.origin)) return
+
+      const payload = event.data
+      if (!payload || payload.source !== SYNC_POST_MESSAGE_SOURCE) return
+
+      setSyncState({
+        status: payload.ok ? "started" : payload.status || "error",
+        message: payload.message || (payload.ok ? "Sync started." : "Sync failed."),
+        actionsUrl: payload.actionsUrl || ""
+      })
+    }
+
+    window.addEventListener("message", handleSyncMessage)
+    return () => window.removeEventListener("message", handleSyncMessage)
+  }, [])
 
   const rangedData = useMemo(() => {
     const { startIndex, endIndex } = brushRange
@@ -724,6 +753,15 @@ export default function Dashboard() {
     }))
   }, [rangedData])
 
+  const syncStatusColor =
+    syncState.status === "started"
+      ? "#166534"
+      : syncState.status === "submitting"
+        ? THEME.muted
+        : syncState.status === "idle"
+          ? THEME.muted
+          : "#b91c1c"
+
   return (
     <div
       style={{
@@ -745,6 +783,37 @@ export default function Dashboard() {
             </div>
 
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <form
+                method="post"
+                action={SYNC_TRIGGER_URL}
+                target="dashboard-sync-trigger-frame"
+                onSubmit={() =>
+                  setSyncState({
+                    status: "submitting",
+                    message: "Starting sync. GitHub will refresh the dashboard in about 1 to 2 minutes.",
+                    actionsUrl: "https://github.com/I-think-we-struck-goals-here/dashboard-app/actions/workflows/sync-dashboard-data.yml"
+                  })
+                }
+                style={{ margin: 0 }}
+              >
+                <input type="hidden" name="action" value="trigger-sync" />
+                <button
+                  type="submit"
+                  style={{
+                    border: "1px solid #0f172a",
+                    background: "#0f172a",
+                    color: "#f6f6f3",
+                    borderRadius: 999,
+                    padding: "9px 14px",
+                    fontSize: 13,
+                    fontWeight: 900,
+                    cursor: "pointer"
+                  }}
+                >
+                  Sync Data
+                </button>
+              </form>
+
               <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 13, color: THEME.muted }}>
                 <input type="checkbox" checked={useRolling} onChange={(e) => setUseRolling(e.target.checked)} />
                 4 week rolling average
@@ -775,6 +844,43 @@ export default function Dashboard() {
               </select>
             </div>
           </div>
+
+          <iframe
+            name="dashboard-sync-trigger-frame"
+            title="Dashboard sync trigger"
+            style={{ display: "none" }}
+          />
+
+          {syncState.message ? (
+            <div
+              style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                borderRadius: 12,
+                border: `1px solid ${THEME.border}`,
+                background: THEME.panel,
+                color: syncStatusColor,
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                flexWrap: "wrap",
+                fontSize: 13,
+                fontWeight: 800
+              }}
+            >
+              <span>{syncState.message}</span>
+              {syncState.actionsUrl ? (
+                <a
+                  href={syncState.actionsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: THEME.text, fontWeight: 900 }}
+                >
+                  View workflow
+                </a>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 18 }}>
