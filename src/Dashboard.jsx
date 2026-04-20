@@ -730,21 +730,8 @@ export default function Dashboard() {
     const list = [
       { title: "Ad spend vs CAC", aKey: spend, bKey: "New Customer Aq Cost" },
       { title: "Ad spend vs New customers", aKey: spend, bKey: "New Web Customers" },
-      { title: "Ad spend vs Subscribers", aKey: spend, bKey: "Active Subs" },
-      { title: "Ad spend vs Revenue", aKey: spend, bKey: "Total" },
-      { title: "Net profit vs Revenue", aKey: "Net Profit (TW)", bKey: "Total" },
       { title: "Ad spend vs Net profit", aKey: spend, bKey: "Net Profit (TW)" },
-      { title: "Active subs vs Net profit", aKey: "Active Subs", bKey: "Net Profit (TW)" },
-      { title: "Ad spend vs Efficiency", aKey: spend, bKey: efficiency },
-      { title: "Active subs vs Efficiency", aKey: "Active Subs", bKey: efficiency },
-      { title: "Ad spend vs Amazon sales", aKey: spend, bKey: "Amazon sales" },
-      { title: "Ad spend vs Net gained subs", aKey: spend, bKey: "Net Gained Subs" },
-
-      { title: "Website revenue vs New customers", aKey: "Website Revenue", bKey: "New Web Customers" },
-      { title: "Website revenue vs CAC", aKey: "Website Revenue", bKey: "New Customer Aq Cost" },
-      { title: "Total revenue vs Active subs", aKey: "Total", bKey: "Active Subs" },
-      { title: "Amazon sales vs Amazon ad spend", aKey: "Amazon sales", bKey: "Amazon ad spend" },
-      { title: "Meta + Google spend vs Website revenue", aKey: spend, bKey: "Website Revenue" }
+      { title: "Ad spend vs Efficiency", aKey: spend, bKey: efficiency }
     ]
 
     return list.map((p) => ({
