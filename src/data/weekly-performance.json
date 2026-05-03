@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-26T23:07:42.139Z",
+  "generatedAt": "2026-05-03T23:07:47.223Z",
   "salesSource": "https://script.google.com/macros/s/AKfycbzvK1JEtSJsQcattA9dySKpR9itwMlClmAt47PK8d4ecBatjASaMKTr71mZRmZFXmHRHw/exec",
   "subscriptionsSource": "existing:src/data/weekly-performance.json",
   "sales": [
@@ -2681,6 +2681,25 @@
       "AMAZON MER": 15.2,
       "WEB MER": 54.95,
       "TOTAL MER": 50.38
+    },
+    {
+      "date": "27/04/2026",
+      "New Web Customers": 123,
+      "New customer revenue": 4223.1,
+      "nAOV": 34.33,
+      "Website": 10545.74,
+      "Amazon sales": 1548,
+      "Google Ad Spend": 279,
+      "FB Ad Spend": 6611,
+      "Amazon ad spend": 332.25,
+      "Total ad spend": 7222.25,
+      "Total": 12093.74,
+      "New Customer Aq Cost": 56.02,
+      "nROAS": 0.61,
+      "Net Profit (TW)": -249,
+      "AMAZON MER": 18.28,
+      "WEB MER": 62.69,
+      "TOTAL MER": 57
     }
   ],
   "subscriptions": [
